@@ -1093,3 +1093,142 @@ select.ia-campo { cursor: pointer; }
 }
 .col-rodape { display: flex; align-items: center; gap: 10px; }
 .col-rodape > span { flex: 1; font-size: 12px; color: var(--sub); }
+
+/* ───────── TAREFAS (tarefas.js, 27/10/2026 — pranchas 01 a 10) ─────────
+   Painel (.aparencia.tf) e cartão de captura (.aparencia.tfc) no visual da Aparência;
+   selo no boneco; sugestão "Anotar como tarefa?" no chat. Só variáveis do tema. */
+.aparencia.tf { width: 400px; gap: 12px; padding: 16px; }
+.aparencia.tfc { width: 380px; gap: 12px; padding: 16px; }
+.aparencia.tf .ap-dica, .aparencia.tfc .ap-dica { margin-top: -8px; }
+:root[data-tema="escuro"] :where(.tf, .tfc) input { color-scheme: dark; }
+.tf-abas { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.tf-num { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.tf-lista { display: flex; flex-direction: column; gap: 2px; }
+.tf-vazio { padding: 6px 2px; }
+.tf-sec { padding: 8px 4px 2px; font-size: 11.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--sub); }
+.tf-sec.erro { color: var(--perigo); }
+.tf-item { display: flex; align-items: flex-start; gap: 10px; padding: 7px 8px; border-radius: var(--raio-interno); }
+.tf-item:hover { background: var(--hover); }
+.tf-item > input[type="checkbox"] { width: 18px; height: 18px; margin: 1px 0 0; flex: none; accent-color: var(--acento); cursor: pointer; }
+.aparencia .tf-item-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; text-align: left; }
+.tf-tit { font-size: 13.5px; line-height: 1.35; word-break: break-word; }
+.tf-meta { font-size: 12px; color: var(--sub); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.tf-item.feita .tf-tit { color: var(--sub); text-decoration: line-through; }
+.tf-item.venc .tf-meta { color: var(--perigo); }
+.tf-ic { flex: none; margin-top: 2px; color: var(--sub); line-height: 0; }
+.tf-ic.acento { color: var(--icone); }
+.tf-ic .ic, .tf-anotei .ic, .tf-resumo .ic, .tf-chip .ic { fill: none; }
+.tf-nova { display: flex; align-items: stretch; gap: 8px; padding-top: 10px; border-top: 1px solid var(--borda); }
+.tf-nova .campo-msg { flex: 1; }
+.tf-nova textarea, .tfc textarea {
+  flex: 1; min-width: 0; resize: none; font: inherit; font-size: 13.5px; line-height: 1.4; outline: none;
+  background: var(--entrada); color: var(--texto); border: 1px solid var(--borda); border-radius: var(--raio-interno);
+  padding: 9px 12px;
+}
+.tf-nova textarea:focus, .tfc textarea:focus { border-color: var(--acento); }
+.tf-nova textarea::placeholder, .tfc textarea::placeholder { color: var(--sub); }
+.aparencia .voz-mic {
+  flex: none; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center;
+  border-radius: 50%; border: 1px solid var(--borda); background: var(--sup); color: var(--texto);
+}
+.aparencia .voz-mic:hover { box-shadow: inset 0 0 0 999px var(--hover); }
+.aparencia .voz-mic.gravando { background: #ff5252; border-color: #ff5252; color: #fff; }
+.aparencia .voz-mic:disabled { opacity: .4; cursor: default; }
+.tf-rot { font-size: 12px; color: var(--sub); }
+.tf-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.tf-linha { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.tf-cresce { flex: 1; min-width: 0; }
+.ia-campo.tf-curto { width: 96px; flex: none; }
+.ia-campo.tf-medio { width: 190px; flex: none; }
+.ia-campo:disabled { opacity: .5; }
+.tf-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.aparencia .tf-chip {
+  height: 32px; padding: 0 11px; display: inline-flex; align-items: center; gap: 6px; position: relative;
+  border-radius: var(--raio-interno); border: 1px solid var(--borda); background: var(--sup);
+  font-size: 12.5px; font-weight: 600; color: var(--texto); cursor: pointer;
+}
+.aparencia .tf-chip:hover { box-shadow: inset 0 0 0 999px var(--hover); }
+.aparencia .tf-chip.sel { border-color: var(--acento); background: var(--acento-suave); }
+/* "Escolher data": o seletor nativo fica por cima do chip, invisível, e abre no clique */
+.tf-chip-data input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; }
+.tf-dias { display: flex; align-items: center; gap: 6px; }
+.tf-dias .tf-rot { margin-right: 4px; }
+.aparencia .tf-diab {
+  width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--borda); background: var(--sup);
+  font-size: 12px; font-weight: 600; color: var(--sub);
+}
+.aparencia .tf-diab.sel { background: var(--acento); border-color: var(--acento); color: var(--acento-txt); }
+.tf-check { display: flex; align-items: center; gap: 10px; font-size: 13px; cursor: pointer; }
+.tf-check input { width: 18px; height: 18px; margin: 0; flex: none; accent-color: var(--acento); }
+.tf-sep { height: 1px; background: var(--borda); }
+.tf-acoes { align-items: center; }
+.tf-esp { flex: 1; }
+.aparencia .ia-bt.tf-perigo { color: var(--perigo); border-color: transparent; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; }
+.aparencia .ia-bt.tf-perigo .ic { fill: none; }
+.aparencia .tf-link { font: inherit; font-size: 12px; color: var(--icone); }
+.tf-nav { display: flex; align-items: center; gap: 6px; }
+.tf-nav > b { font-size: 13.5px; }
+.tf-nav-sub { margin-left: auto; font-size: 12px; color: var(--sub); }
+.tf-semdia { padding: 6px 4px; border-radius: var(--raio-interno); }
+.tf-semdia.hoje { background: var(--acento-suave); }
+.tf-semdia-topo { display: flex; align-items: baseline; gap: 8px; padding: 2px 4px; }
+.tf-semdia-topo b { font-size: 13px; width: 64px; flex: none; text-transform: capitalize; }
+.tf-semdia-topo span { font-size: 12px; color: var(--sub); }
+.tf-grade { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.tf-sem { text-align: center; font-size: 11.5px; font-weight: 600; color: var(--sub); padding: 2px 0; text-transform: capitalize; }
+.aparencia .tf-cel {
+  height: 46px; padding: 5px 6px; border-radius: var(--raio-interno); background: var(--sup);
+  display: flex; flex-direction: column; justify-content: space-between; align-items: flex-start;
+  border: 1px solid transparent; font-size: 12.5px;
+}
+.tf-cel.vazia { background: transparent; }
+.aparencia .tf-cel.passado > span { color: var(--sub); }
+.aparencia .tf-cel.hoje { border-color: var(--acento); font-weight: 700; }
+.aparencia .tf-cel.sel { background: var(--acento-suave); }
+.aparencia .tf-cel:hover { box-shadow: inset 0 0 0 999px var(--hover); }
+.tf-qtd {
+  min-width: 18px; height: 16px; padding: 0 5px; box-sizing: border-box; border-radius: 8px;
+  font-size: 10.5px; font-weight: 700; font-style: normal; display: inline-flex; align-items: center; justify-content: center;
+}
+.tf-qtd.pend, .tf-legenda i.pend { background: var(--acento); color: var(--acento-txt); }
+.tf-qtd.feitas, .tf-legenda i.feitas { background: var(--sup2); color: var(--texto); }
+.tf-qtd.atraso, .tf-legenda i.atraso { background: var(--perigo); color: #15161A; }
+.tf-legenda { display: flex; gap: 14px; font-size: 11.5px; color: var(--sub); }
+.tf-legenda span { display: flex; align-items: center; gap: 5px; }
+.tf-legenda i { width: 10px; height: 10px; border-radius: 50%; }
+/* cartão de captura */
+.tfc .campo-msg { display: flex; }
+.tfc .campo-msg .voz-barra { min-height: 64px; }
+.tf-anotei { display: flex; align-items: flex-start; gap: 10px; }
+.tf-anotei > span:nth-child(2) { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.tf-anotei b { font-size: 15px; font-weight: 700; word-break: break-word; }
+.tf-anotei-ok {
+  width: 32px; height: 32px; flex: none; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  background: var(--acento-suave); color: var(--icone);
+}
+.tf-resumo { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: var(--raio-botao); background: var(--sup); font-size: 13.5px; }
+.tf-resumo > span { display: flex; align-items: center; gap: 8px; }
+.tf-resumo .ic { color: var(--icone); }
+.tf-barra { height: 4px; border-radius: 2px; background: var(--sup2); overflow: hidden; }
+.tf-barra i { display: block; width: 100%; height: 100%; background: var(--icone); transition: width .25s linear; }
+.tf-anotando { display: flex; align-items: center; gap: 10px; padding: 8px 2px; font-size: 13.5px; color: var(--sub); }
+.tf-anotando .voz-ponto { background: var(--acento); animation: pulso 1s infinite; }
+/* selo de pendentes no boneco */
+.tf-selo {
+  position: absolute; right: 6%; top: 8%; z-index: 3; min-width: 24px; height: 24px; padding: 0 6px; box-sizing: border-box;
+  border-radius: 12px; border: 2px solid var(--fundo); background: var(--acento); color: var(--acento-txt);
+  font: 700 12px/1 var(--fonte); display: flex; align-items: center; justify-content: center; cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0,0,0,.35);
+}
+.tf-selo.atraso { background: var(--perigo); color: #15161A; }
+.tf-selo.oculto { display: none; }
+.tf-selo:focus-visible { outline: 2px solid var(--acento); outline-offset: 2px; }
+/* sugestão no chat */
+.tf-sugere {
+  display: flex; align-items: center; gap: 8px; margin: 0 10px 8px; padding: 6px 6px 6px 10px;
+  border-radius: var(--raio-botao); background: var(--sup); border: 1px solid var(--borda);
+  font-size: 12.5px; color: var(--texto);
+}
+.tf-sugere > span { flex: 1; min-width: 0; }
+.tf-sugere .ic { color: var(--icone); fill: none; }
+.tf-sugere .pn-bt { height: 28px; padding: 0 10px; }

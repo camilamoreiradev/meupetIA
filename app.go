@@ -178,6 +178,8 @@ func (a *App) startup(ctx context.Context) {
 	go a.stateLoop()
 	go a.escondeDuranteCaptura() // some enquanto a Ferramenta de Captura está aberta
 	go a.emailLoop()             // triagem de e-mail (lê as contas por IMAP, só leitura)
+	go a.tarefasLoop()           // lembretes das tarefas (balão + notificação do Windows)
+	go a.atalhoTarefas()         // Ctrl+Alt+T: anotar uma tarefa de qualquer lugar
 	go a.warmBalance()
 }
 
@@ -652,6 +654,9 @@ func (a *App) enviaChat(conversa, text string, anexos []map[string]any) string {
 	cmd := comandoLocal(text)
 	if len(anexos) > 0 {
 		cmd = "" // com anexo, "saldo" é pergunta sobre o arquivo — vai para o agente
+	} else if r, ok := tarefaDoChat(text); ok {
+		a.avisaMudancaTarefas()
+		return r
 	}
 	switch cmd {
 	case "saldo":

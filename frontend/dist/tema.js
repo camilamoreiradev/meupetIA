@@ -64,6 +64,11 @@ const ICONES = (() => {
     subir: "M12 15V3M7 8l5-5 5 5M4 15v6h16v-6",
     lista: "M4 6h16M4 12h16M4 18h16",
     abaixo: "M6 9l6 6 6-6",
+    // tarefas (27/10/2026)
+    tarefas: "M3 17l2 2 4-4M3 7l2 2 4-4M13 6h8M13 12h8M13 18h8",
+    calendario: "M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM16 2v4M8 2v4M3 10h18",
+    repetir: "M17 2l4 4-4 4M3 11v-1a4 4 0 0 1 4-4h14M7 22l-4-4 4-4M21 13v1a4 4 0 0 1-4 4H3",
+    voltar: "M15 18l-6-6 6-6",
   };
 })();
 

@@ -29,8 +29,10 @@ const gravandoVoz = () => !!(voz.rec && voz.rec.state === "recording");
 
 /* ───────── gravar ───────── */
 
-async function vozComeca(botao, input) {
-  if (ocupado || voz.transcrevendo) return;
+// aoTexto (opcional): quem recebe o texto transcrito no lugar do chat — a captura de
+// tarefas (tarefas.js) usa. Sem ele, o texto vai para a conversa (enviarTexto).
+async function vozComeca(botao, input, aoTexto) {
+  if ((ocupado && !aoTexto) || voz.transcrevendo || gravandoVoz()) return;
   pararFala();
   try {
     voz.stream = await navigator.mediaDevices.getUserMedia({
@@ -42,7 +44,7 @@ async function vozComeca(botao, input) {
   voz.mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus" : "";
   voz.rec = new MediaRecorder(voz.stream, voz.mime ? { mimeType: voz.mime } : undefined);
   voz.mime = voz.rec.mimeType || voz.mime;
-  Object.assign(voz, { pedacos: [], botao, input, t0: Date.now(), ultimoSom: Date.now(), falou: false, cancelado: false });
+  Object.assign(voz, { pedacos: [], botao, input, aoTexto: aoTexto || null, t0: Date.now(), ultimoSom: Date.now(), falou: false, cancelado: false });
   voz.rec.ondataavailable = (e) => { if (e.data && e.data.size) voz.pedacos.push(e.data); };
   voz.rec.onstop = vozTerminou;
   voz.rec.start(250);
@@ -107,7 +109,7 @@ function vozDevolveInput() {
 
 async function vozTerminou() {
   vozSoltaMicrofone();
-  const input = voz.input;
+  const input = voz.input, aoTexto = voz.aoTexto;
   const audio = new Blob(voz.pedacos, { type: voz.mime || "audio/webm" });
   voz.rec = null;
   voz.pedacos = [];
@@ -134,7 +136,8 @@ async function vozTerminou() {
     return;
   }
   if (!r.texto) { toast("microfone", "Áudio não compreendido", "Não foi possível identificar palavras no áudio. Tente novamente.", 6000, true); return; }
-  enviarTexto(r.texto, input);
+  if (aoTexto) aoTexto(r.texto);
+  else enviarTexto(r.texto, input);
 }
 
 function blobBase64(blob) {

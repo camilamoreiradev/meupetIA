@@ -1130,6 +1130,7 @@ async function enviarTexto(texto, input) {
   document.getElementById("cg-txt").value = "";
   if (typeof pararFala === "function") pararFala(); // pergunta nova: a resposta antiga se cala
   msg(texto, "eu", ids.length ? { anexos: anx.itens, custo: anx.custo } : undefined);
+  if (typeof sugereTarefa === "function") sugereTarefa(texto); // "tenho que…" → "Anotar como tarefa?" (tarefas.js)
   classePet("pensando");
   ocupado = true;                       // esperando resposta: o balão NÃO se esconde
   iniciaAoVivo();                       // a bolha "digitando" (era a linha "⏳ consultando…")
@@ -1335,6 +1336,7 @@ const MENU = {
     ["conversar", "Conversar", () => { abrirBalao(); txt.focus(); }, "No balão, junto do boneco"],
     ["janela", "Chat estendido", () => abrirChatGrande(), "Janela grande, com histórico"],
     ["email", "E-mail", () => abrirEmail(), "O que chegou de importante"],
+    ["tarefas", "Tarefas", () => abrirTarefas(), () => (typeof descTarefas === "function" ? descTarefas() : "Lista do dia e lembretes")],
   ],
   sistema: [
     ["tela", "Tela e borda", () => abrirSeletorTela()],
@@ -1371,7 +1373,7 @@ function montarMenu() {
   } else if (abaMenu === "recursos") {
     corpo = `<div class="mlista largo">${MENU.recursos.map(([ico, nome, , desc]) =>
       `<button class="mcartao" data-acao="${escMenu(nome)}"><span class="mcartao-ico">${icone(ico)}</span>` +
-      `<span class="txt"><b>${escMenu(nome)}</b><span>${escMenu(desc || "")}</span></span>${icone("seta", 16)}</button>`).join("")}</div>`;
+      `<span class="txt"><b>${escMenu(nome)}</b><span>${escMenu(valorDe(desc))}</span></span>${icone("seta", 16)}</button>`).join("")}</div>`;
   } else {
     corpo = `<div class="mlista">${MENU.sistema.map((it) => linha(it)).join("")}
       <div class="menu-sep"></div>${linha(["desligar", "Desligar"], "perigo")}</div>`;
@@ -1952,7 +1954,7 @@ document.addEventListener("click", (e) => {
   }
 });
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") { fecharMenu(); fecharBalao(); fecharSeletorTela(); fecharEmail(); if (typeof fecharContasEmail === "function") fecharContasEmail(); fecharAparencia(); if (typeof fecharInteligencia === "function") fecharInteligencia(); if (window.bicho && window.bicho.fecharPainel) window.bicho.fecharPainel(); }
+  if (e.key === "Escape") { fecharMenu(); fecharBalao(); fecharSeletorTela(); fecharEmail(); if (typeof fecharContasEmail === "function") fecharContasEmail(); fecharAparencia(); if (typeof fecharInteligencia === "function") fecharInteligencia(); if (typeof fecharTarefas === "function") { fecharTarefas(); fecharCaptura(); } if (window.bicho && window.bicho.fecharPainel) window.bicho.fecharPainel(); }
   reiniciarAuto();
 });
 document.getElementById("enviar").onclick = enviar;
