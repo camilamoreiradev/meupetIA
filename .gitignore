@@ -4,6 +4,8 @@ build/
 *.dll
 *.so
 *.syso
+# bindings que o `wails build` gera a cada compilação (o frontend usa window.go direto)
+frontend/wailsjs/
 
 # logs, temporários e estados locais
 *.log
