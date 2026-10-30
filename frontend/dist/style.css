@@ -12,7 +12,16 @@ html, body {
   background: transparent; overflow: hidden;
   font-family: var(--fonte, "Segoe UI", system-ui, sans-serif);
   user-select: none; cursor: default;
+  /* menu do botão direito do WebView2: escondido no app todo (o boneco tem o dele)... */
+  --default-contextmenu: hide;
 }
+/* ...e só onde faz sentido: texto selecionado nas mensagens (Copiar) e campos (Colar).
+   O texto das mensagens pode ser selecionado em parte (28/10/2026): antes o user-select
+   do body valia para tudo e só dava para copiar a mensagem inteira pelo botão. */
+input, textarea { --default-contextmenu: auto; }
+.msgs .m-texto, .msgs .m-texto * { user-select: text; -webkit-user-select: text; cursor: text; --default-contextmenu: auto; }
+.msgs .m-texto ::selection { background: var(--acento-suave); }
+.msgs .eu .m-texto ::selection { background: rgba(255,255,255,.35); }
 
 /* ───────── BONECO ───────── */
 .pet {
@@ -138,7 +147,31 @@ body.parado .pet.idle svg { animation: none; }
      ficou com texto preto porque só o .balao definia color */
   color: var(--texto); }
 .msgs .m { font-size: 13.5px; line-height: 1.4; padding: 8px 12px; border-radius: var(--raio-botao); max-width: 92%; white-space: pre-wrap; word-break: break-word; }
-.msgs .m code { background: var(--sup2); border-radius: 4px; padding: 0 4px; font-size: 12px; }
+.msgs .m code { background: var(--sup2); border-radius: 4px; padding: 0 4px; font-size: 12px; font-family: "JetBrains Mono", Consolas, monospace; }
+/* caixa de código (```): fonte de código, linguagem e Copiar só do código */
+.msgs .bloco-codigo {
+  margin: 6px 0; max-width: 100%; white-space: normal; overflow: hidden;
+  border: 1px solid var(--borda); border-radius: var(--raio-interno); background: var(--entrada); color: var(--texto);
+}
+.msgs .bc-topo {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 3px 4px 3px 10px;
+  background: var(--sup2); font-size: 11.5px; font-weight: 600; color: var(--sub);
+}
+.msgs .m-texto .bc-topo, .msgs .m-texto .bc-topo * { user-select: none; -webkit-user-select: none; cursor: default; }
+.msgs .bc-copiar {
+  display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 8px;
+  border-radius: 6px; font-size: 11.5px; font-weight: 600; color: var(--texto); cursor: pointer;
+}
+.msgs .m-texto .bc-copiar { cursor: pointer; }
+.msgs .bc-copiar:hover { box-shadow: inset 0 0 0 999px var(--hover); }
+.msgs .bc-copiar.copiado { color: var(--icone); }
+.msgs .bc-copiar .ic { fill: none; }
+.msgs .bloco-codigo pre {
+  margin: 0; padding: 8px 10px; overflow-x: auto; white-space: pre; tab-size: 4;
+  font: 12px/1.5 "JetBrains Mono", Consolas, monospace;
+  scrollbar-width: thin; scrollbar-color: var(--rolagem) transparent;
+}
+.msgs .bloco-codigo pre code { background: none; padding: 0; border-radius: 0; font: inherit; }
 .msgs .eu  { align-self: flex-end; background: var(--acento); color: var(--acento-txt); }
 .msgs .ele { align-self: flex-start; background: var(--sup); border: 1px solid var(--borda); }
 .msgs .meta { font-size: 11px; color: var(--sub); align-self: center; }

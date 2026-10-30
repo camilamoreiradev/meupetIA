@@ -109,6 +109,9 @@ func main() {
 		AlwaysOnTop:      true,
 		DisableResize:    true,
 		BackgroundColour: &options.RGBA{R: 0, G: 0, B: 0, A: 0},
+		// botão direito com "Copiar"/"Colar": só sobre texto selecionado e nos campos —
+		// o CSS (--default-contextmenu) esconde o menu no resto (o boneco tem o dele)
+		EnableDefaultContextMenu: true,
 		Windows: &windows.Options{
 			WebviewIsTransparent: true,
 			WindowIsTranslucent:  true,

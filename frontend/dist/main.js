@@ -753,13 +753,42 @@ function escHtml(t) {
     .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
-// O agente responde em markdown; aqui vai um subconjunto seguro (escapa antes)
+// nome do bloco de código que aparece no topo da caixa (o agente marca ```sql, ```bash…)
+const LING_CODIGO = {
+  sql: "SQL", bash: "Terminal", sh: "Terminal", shell: "Terminal", zsh: "Terminal", console: "Terminal",
+  powershell: "PowerShell", ps1: "PowerShell", ps: "PowerShell", pwsh: "PowerShell",
+  cmd: "Prompt de comando", bat: "Prompt de comando", batch: "Prompt de comando",
+  js: "JavaScript", javascript: "JavaScript", ts: "TypeScript", typescript: "TypeScript",
+  py: "Python", python: "Python", go: "Go", json: "JSON", yaml: "YAML", yml: "YAML",
+  html: "HTML", css: "CSS", xml: "XML", php: "PHP", java: "Java", cs: "C#", csharp: "C#",
+};
+function nomeLinguagem(l) {
+  const k = String(l || "").toLowerCase();
+  return LING_CODIGO[k] || (k ? k.toUpperCase() : "Código");
+}
+
+/* O agente responde em markdown; aqui vai um subconjunto seguro (escapa antes).
+   28/10/2026 (pedido da dona): blocos ``` viram uma caixa de código — fonte de código,
+   o nome da linguagem e um botão Copiar que copia SÓ o código (ligado em pintaConversa).
+   Os blocos saem do texto antes do negrito/`código` e voltam no fim, para nada dentro
+   deles virar formatação. Um bloco ainda sem o ``` de fechar (resposta chegando) também vale. */
 function formata(t) {
-  let s = escHtml(t || "");
+  const blocos = [];
+  let s = String(t || "").replace(/\u0000/g, "").replace(/```([\w+#.-]*)[ \t]*\n?([\s\S]*?)(?:```|$)/g, (_, ling, cod) => {
+    blocos.push({ ling, cod: cod.replace(/\n$/, "") });
+    return "\u0000" + (blocos.length - 1) + "\u0000";
+  });
+  s = escHtml(s);
   s = s.replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>");
   s = s.replace(/`([^`\n]+)`/g, "<code>$1</code>");
   s = s.replace(/^#{1,4} (.*)$/gm, "<b>$1</b>");
-  return s;
+  // a quebra de linha em volta do bloco sai: a caixa já separa do texto
+  return s.replace(/\n?\u0000(\d+)\u0000\n?/g, (_, i) => {
+    const b = blocos[i];
+    return `<div class="bloco-codigo"><div class="bc-topo"><span>${escHtml(nomeLinguagem(b.ling))}</span>` +
+      `<button class="bc-copiar" type="button" title="Copiar o código">${icone("copiar", 13)}<span>Copiar</span></button></div>` +
+      `<pre><code>${escHtml(b.cod)}</code></pre></div>`;
+  });
 }
 
 // `extra` vai junto na mensagem guardada (ex.: { hora, seg } no rodapé da resposta)
@@ -1021,6 +1050,9 @@ function pintaConversa() {
         const tx = document.createElement("span");
         tx.className = "m-texto";
         tx.innerHTML = formata(sep.texto);
+        tx.querySelectorAll(".bc-copiar").forEach((b) => {
+          b.onclick = (ev) => { ev.stopPropagation(); copiarTexto(b.closest(".bloco-codigo").querySelector("code").textContent, b, "Copiar"); };
+        });
         el.appendChild(tx);
       }
       // rodapé discreto da resposta: hora e quanto levou (era a linha "via Hermes · 13.9 s");
@@ -1108,11 +1140,14 @@ function bolhaAnexos(anexos) {
 
 /* Copiar mensagem: a API de clipboard exige contexto seguro e no WebView2 nem
    sempre está disponível, então há reserva com textarea + execCommand. */
-function copiarTexto(t, el) {
+// rotulo: o botão tem texto ao lado do ícone (o "Copiar" da caixa de código)
+function copiarTexto(t, el, rotulo) {
+  const tam = rotulo ? 13 : 14;
+  const pinta = (ic, txt) => { el.innerHTML = icone(ic, tam) + (rotulo ? "<span>" + txt + "</span>" : ""); };
   const ok = () => {
-    el.innerHTML = icone("ok", 14);
+    pinta("ok", "Copiado");
     el.classList.add("copiado");
-    setTimeout(() => { el.innerHTML = icone("copiar", 14); el.classList.remove("copiado"); }, 1200);
+    setTimeout(() => { pinta("copiar", rotulo); el.classList.remove("copiado"); }, 1200);
   };
   const reserva = () => {
     const ta = document.createElement("textarea");
