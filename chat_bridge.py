@@ -21,6 +21,17 @@ Protocolo com o app (1 JSON por linha):
     app <- {"ok": true, "pronto": true, ...}          (handshake)
     app <- {"ok": true, "resposta": "...", "segundos": 3.2, "conversa": "<id guardado>"}
     app <- {"ok": true, "id": 2, "dados": {...}}      (resposta de uma "op")
+    app <- {"ok": true, "id": 1, "progresso": "aprovacao", "aprovacao": {...}}  (ver abaixo)
+    app -> {"aprovacao": "<pedido>", "escolha": "once" | "session" | "always" | "deny"}
+
+APROVAÇÕES (30/10/2026). Comando perigoso (terminal, computer_use…) o Hermes só roda com o
+"sim" de alguém. Ele pergunta ao CLIENTE conectado por um pedido servidor→cliente
+(`{"id": "srq-…", "method": "approval", ...}`) — mas só a quem avisou, ao conectar, que sabe
+responder (`client.capabilities {server_requests: true}`). A ponte não avisava: o Hermes
+retirava a pergunta na hora ("the attached client cannot answer approval requests (update the
+Hermes app)") e a dona não conseguia autorizar nada pelo chat. Agora a ponte avisa, repassa a
+pergunta ao app (o cartão no chat) e devolve a escolha. A resposta do app chega pelo stdin NO
+MEIO da pergunta — por isso o stdin tem um leitor próprio (_le_stdin), separado do laço serial.
 
 CONVERSAS (22/10/2026, pedido da dona: "criar chats como no Claude, e a anterior fica
 salva"). Cada conversa é uma SESSÃO do Hermes, no state.db do home espelhado (o do boneco,
@@ -441,7 +452,14 @@ _EV_CONHECIDOS = {
     # "reasoning.delta" é o pensamento token a token; não serve para diagnosticar nada.
     "reasoning.delta", "tool.generating", "message.interim",
     "error",  # tem log próprio e completo em _perguntar_uma (o genérico cortava em 200)
+    "request.cancel",  # o Hermes retirou uma pergunta (aprovação): tratado em _perguntar_uma
 }
+
+# Aprovações: as escolhas que o Hermes aceita (contracts/server_requests.py::ApprovalChoice)
+ESCOLHAS_APROVACAO = ("once", "session", "always", "deny")
+# Pedido servidor→cliente que a ponte não sabe responder: este erro faz o Hermes desistir NA HORA
+# (o contrato de client.capabilities pede -32601). Calado, o agente esperaria o prazo inteiro.
+SEM_TRATAMENTO = -32601
 
 
 def log(msg: str) -> None:
@@ -487,6 +505,18 @@ def _progresso(tipo: str, texto: str) -> None:
     try:
         print(json.dumps({"ok": True, "id": _pedido_atual, "progresso": tipo,
                           "texto": str(texto)[:800]}, ensure_ascii=False), flush=True)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _avisa_aprovacao(dados: dict) -> None:
+    """Leva ao app a pergunta de aprovação (o cartão do chat). Linha própria, sem o freio nem o
+    corte de 800 do _progresso: o JSON cortado no meio chegaria ilegível."""
+    if EM_TESTE:
+        return
+    try:
+        print(json.dumps({"ok": True, "id": _pedido_atual, "progresso": "aprovacao",
+                          "aprovacao": dados}, ensure_ascii=False), flush=True)
     except Exception:  # noqa: BLE001
         pass
 
@@ -542,6 +572,7 @@ class Backend:
         self.vivas: dict[str, str] = {}   # guardado -> execução, das conversas já abertas aqui
         self.modelo = ""
         self.seq = 0
+        self.aprovacoes: set[str] = set()  # ids "srq-…" das aprovações esperando a dona
 
     # ---------- subida ----------
     def subir_processo(self) -> bool:
@@ -595,6 +626,8 @@ class Backend:
                 continue
             if str(d.get("id") or "") == meu:
                 return d
+            if await self._pedido_do_servidor(d):
+                continue
             # eventos do gateway chegam antes: só registra os interessantes
             p = d.get("params") if isinstance(d.get("params"), dict) else {}
             if str(p.get("type") or "") not in ("", "gateway.ready"):
@@ -609,6 +642,16 @@ class Backend:
         # criava sessão nova e o boneco esquecia a conversa ao reiniciar o app.
         alvo = self.chave or os.environ.get("PETAGENT_CONVERSA", "").strip()
         self.vivas = {}   # backend novo: nenhuma sessão de execução antiga vale mais
+        self.aprovacoes = set()
+        # avisa que esta ponte RESPONDE pedidos servidor→cliente (as aprovações; ver o topo do
+        # arquivo). Vale por conexão: toda reconexão manda de novo. Falhar não impede o chat —
+        # só as aprovações voltam a ser recusadas.
+        try:
+            r = await self.rpc("client.capabilities", {"server_requests": True}, timeout=30)
+            if "error" in r or "erro" in r:
+                log(f"client.capabilities recusado: {json.dumps(r)[:200]}")
+        except Exception as e:  # noqa: BLE001
+            log(f"client.capabilities falhou ({type(e).__name__}: {e}) — aprovações indisponíveis")
         r = await self.rpc("session.create", {"cwd": CWD_PADRAO, "source": "petagent"}, timeout=240)
         res = r.get("result") if isinstance(r.get("result"), dict) else {}
         self.sessao = str(res.get("session_id") or "")
@@ -794,6 +837,62 @@ class Backend:
             return False
         log("canal quente reconectado")
         return True
+
+    # ---------- aprovações (30/10/2026; ver o topo do arquivo) ----------
+    async def _pedido_do_servidor(self, d: dict) -> bool:
+        """Trata um pedido servidor→cliente (`{"id": "srq-…", "method": ...}`). True = era um.
+
+        `approval` vira o cartão do chat. Qualquer outro (clarify, sudo, secret, os da janela do
+        Desktop…) a ponte não sabe mostrar: responde -32601 na hora e o Hermes segue sem esperar
+        — calado, o agente ficaria parado até o prazo (300 s no clarify)."""
+        rid, metodo = d.get("id"), d.get("method")
+        if not isinstance(rid, str) or not isinstance(metodo, str) or metodo == "event":
+            return False
+        p = d.get("params") if isinstance(d.get("params"), dict) else {}
+        if metodo == "approval":
+            self.aprovacoes.add(rid)
+            opcoes = [c for c in (p.get("choices") or []) if c in ESCOLHAS_APROVACAO] or ["once", "deny"]
+            log(f"aprovação {rid} pedida ({p.get('tool_name') or 'ferramenta'}): "
+                f"{str(p.get('description') or '')[:120]}")
+            _avisa_aprovacao({"pedido": rid, "comando": str(p.get("command") or "")[:4000],
+                              "descricao": str(p.get("description") or ""),
+                              "ferramenta": str(p.get("tool_name") or ""), "opcoes": opcoes})
+            return True
+        log(f"pedido do servidor sem tratamento aqui: {metodo} — recusado (-32601)")
+        await self._envia({"jsonrpc": "2.0", "id": rid,
+                           "error": {"code": SEM_TRATAMENTO,
+                                     "message": f"o chat do PetAgent não responde '{metodo}'"}})
+        return True
+
+    def _aprovacao_retirada(self, p: dict) -> None:
+        """`request.cancel`: o Hermes desistiu da pergunta (prazo, interrupção). O cartão sai da tela."""
+        carga = p.get("payload") if isinstance(p.get("payload"), dict) else p
+        rid = str(carga.get("id") or "")
+        if rid in self.aprovacoes:
+            self.aprovacoes.discard(rid)
+            log(f"aprovação {rid} retirada pelo Hermes ({carga.get('reason')})")
+            _progresso("aprovacao-fim", rid)
+
+    async def responde_aprovacao(self, rid: str, escolha: str) -> None:
+        """A escolha da dona no cartão (chega pelo stdin, no meio da pergunta — ver _le_stdin)."""
+        if escolha not in ESCOLHAS_APROVACAO:
+            log(f"aprovação {rid}: escolha inválida {escolha!r} — tratada como negar")
+            escolha = "deny"
+        if rid not in self.aprovacoes:
+            log(f"aprovação {rid}: já não estava aberta (o Hermes retirou ou a ponte reconectou)")
+            return
+        self.aprovacoes.discard(rid)
+        log(f"aprovação {rid}: {escolha}")
+        await self._envia({"jsonrpc": "2.0", "id": rid, "result": {"choice": escolha}})
+
+    async def _envia(self, frame: dict) -> None:
+        if self.ws is None:
+            log("canal fechado: resposta ao Hermes não enviada")
+            return
+        try:
+            await self.ws.send(json.dumps(frame))
+        except Exception as e:  # noqa: BLE001
+            log(f"falha ao responder o Hermes ({type(e).__name__}: {e})")
 
     # ---------- perguntar ----------
     async def perguntar(self, texto: str, timeout: float = 300,
@@ -1022,10 +1121,10 @@ Comandos deste chat (sempre disponíveis):
         self.seq += 1
         pedacos: list[str] = []
         erro_hermes = ""  # evento `error` do turno (ver _erro_legivel)
-        while time.time() - t0 < timeout:
+        limite = t0 + timeout
+        while time.time() < limite:
             try:
-                raw = await asyncio.wait_for(self.ws.recv(),
-                                             timeout=max(1, timeout - (time.time() - t0)))
+                raw = await asyncio.wait_for(self.ws.recv(), timeout=max(1, limite - time.time()))
             except asyncio.TimeoutError:
                 return "".join(pedacos).strip() or "(tempo esgotado)", time.time() - t0
             try:
@@ -1033,6 +1132,11 @@ Comandos deste chat (sempre disponíveis):
             except (json.JSONDecodeError, TypeError):
                 continue
             if not isinstance(d, dict):
+                continue
+            if await self._pedido_do_servidor(d):
+                # o tempo que a dona leva para decidir não conta contra a resposta: o prazo
+                # recomeça daqui (o próprio Hermes desiste da pergunta em 300 s)
+                limite = max(limite, time.time() + timeout)
                 continue
             p = d.get("params") if isinstance(d.get("params"), dict) else {}
             tipo = str(p.get("type") or d.get("method") or "")
@@ -1060,6 +1164,8 @@ Comandos deste chat (sempre disponíveis):
                 carga = p.get("payload") if isinstance(p.get("payload"), dict) else p
                 erro_hermes = str(carga.get("message") or carga.get("error") or carga)
                 log(f"erro do Hermes no turno: {erro_hermes[:1500]}")
+            elif tipo == "request.cancel":
+                self._aprovacao_retirada(p)
             elif tipo == "message.complete":
                 break
             # thinking.delta / reasoning.available são PENSAMENTO: não entram na resposta
@@ -1117,14 +1223,12 @@ async def servico(bk: "Backend", args) -> int:
     print(json.dumps({"ok": True, "pronto": True, "sessao": bk.sessao, "modelo": bk.modelo,
                       "conversa": bk.chave}), flush=True)
     global _pedido_atual
+    fila: asyncio.Queue = asyncio.Queue()
+    leitor = asyncio.create_task(_le_stdin(bk, fila))
     while True:
-        linha = await asyncio.to_thread(sys.stdin.readline)
-        if not linha:
+        pedido = await fila.get()
+        if pedido is None:
             break
-        try:
-            pedido = json.loads(linha)
-        except json.JSONDecodeError:
-            continue
         # o id volta em toda linha desta pergunta: se o app já desistiu dela (prazo), a
         # resposta atrasada não pode ser lida como resposta da pergunta seguinte
         _pedido_atual = pedido.get("id")
@@ -1155,8 +1259,32 @@ async def servico(bk: "Backend", args) -> int:
             print(json.dumps({"ok": False, "id": _pedido_atual,
                               "erro": f"{type(e).__name__}: {e}"}), flush=True)
     # o app fechou: leva o backend junto (sem órfãos — a árvore inteira, ver _derruba_arvore)
+    leitor.cancel()
     _derruba_arvore(bk.proc)
     return 0
+
+
+async def _le_stdin(bk: "Backend", fila: asyncio.Queue) -> None:
+    """O ÚNICO leitor do stdin. A escolha de uma aprovação vai direto ao Hermes — ela chega
+    enquanto o laço de `servico` está parado esperando a pergunta, que só termina DEPOIS dela.
+    O resto (perguntas e operações) entra na fila, na ordem. None na fila = o app fechou."""
+    try:
+        while True:
+            linha = await asyncio.to_thread(sys.stdin.readline)
+            if not linha:
+                break
+            try:
+                pedido = json.loads(linha)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(pedido, dict):
+                continue
+            if pedido.get("aprovacao"):
+                await bk.responde_aprovacao(str(pedido["aprovacao"]), str(pedido.get("escolha") or ""))
+                continue
+            await fila.put(pedido)
+    finally:
+        await fila.put(None)
 
 
 # ---------------------------------------------------------------------------

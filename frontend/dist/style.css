@@ -152,6 +152,21 @@ body.parado .pet.idle svg { animation: none; }
 .msgs .ao-vivo .digitando i:nth-child(2) { animation-delay: .15s; }
 .msgs .ao-vivo .digitando i:nth-child(3) { animation-delay: .3s; }
 .msgs .ao-vivo .passo { display: block; margin-top: 2px; font-size: 11.5px; color: var(--sub); white-space: normal; }
+/* o cartão de aprovação: o Hermes pede o "sim" da dona antes de um comando perigoso */
+.msgs .aprovacao { display: flex; flex-direction: column; gap: 6px; white-space: normal; border-color: var(--acento); }
+.msgs .aprovacao b { font-size: 13.5px; font-weight: 650; }
+.msgs .aprovacao .ap-desc { font-size: 12.5px; color: var(--sub); }
+.msgs .aprovacao .ap-cmd {
+  margin: 0; max-height: 140px; overflow: auto; padding: 6px 8px; border-radius: 6px;
+  background: var(--sup2); font: 12px/1.4 ui-monospace, Consolas, monospace; white-space: pre-wrap; word-break: break-all;
+}
+.msgs .aprovacao .ap-bts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+/* o reset de botão do .pn-bt só vale nos painéis e no toast: aqui dentro do chat, o mesmo */
+.msgs .aprovacao button { font: inherit; font-size: 12.5px; font-weight: 600; border: 0; margin: 0; cursor: pointer; }
+.msgs .aprovacao button:focus-visible { outline: 2px solid var(--acento); outline-offset: 2px; }
+.msgs .aprovacao .pn-bt.sec { background: var(--sup2); }
+.msgs .aprovacao .pn-bt.negar { color: #d64545; }
+:root[data-tema="escuro"] .msgs .aprovacao .pn-bt.negar { color: #ff7a7a; }
 
 /* rodapé do chat (balão e estendido): o campo de 3 linhas (Shift+Enter quebra linha) com a seta
    de enviar DENTRO (só o ícone, no meio da altura); à direita, 🎤 em cima e 📎 embaixo */

@@ -35,6 +35,9 @@ var (
 	ponteLinhas chan string // stdout da ponte, linha a linha — de UM leitor só (ligaPonte)
 	ponteMu     sync.Mutex  // uma pergunta por vez
 	ponteSeq    int         // id da pergunta em andamento (só muda com ponteMu)
+	// a ESCRITA no stdin da ponte (e a troca de ponteIn): a resposta de uma aprovação é escrita
+	// enquanto a pergunta segura ponteMu — as duas linhas não podem se misturar no cano
+	ponteEscritaMu sync.Mutex
 
 	// o processo da ponte: guardado para poder REINICIAR (painel Inteligência trocou a IA).
 	// Antes era um sync.Once e o processo nem era guardado — subia uma vez e pronto.
@@ -96,14 +99,28 @@ func caminhoPythonHermes() string {
 			return p
 		}
 		// Hermes 0.21+ (Windows): o venv mora em installs\<id>\environments\<hash>\venv
-		// (nome sorteado). Se houver mais de um, o mais recente é o da instalação atual.
+		// (nome sorteado), e há vários. Vale o que TEM websockets (a ponte importa logo na
+		// primeira linha) e, entre esses, a pasta mais nova.
+		//
+		// Medido em 30/10/2026: antes valia o python.exe mais novo, mas o uv grava TODOS com a
+		// mesma data (31/12/2023) — empatava e vencia o primeiro em ordem alfabética, um venv
+		// sem pacote nenhum. A ponte só subia porque o app herdava um PYTHONPATH do Hermes;
+		// aberto de outro jeito, morria com "websockets não está instalado".
 		achados, _ := filepath.Glob(filepath.Join(base, "hermes", "installs", "*",
 			"environments", "*", "venv", "Scripts", "python.exe"))
 		var maisNovo time.Time
+		comWS := false
 		p = ""
 		for _, c := range achados {
-			if st, err := os.Stat(c); err == nil && st.ModTime().After(maisNovo) {
-				maisNovo, p = st.ModTime(), c
+			venv := filepath.Dir(filepath.Dir(c))
+			st, err := os.Stat(venv)
+			if err != nil {
+				continue
+			}
+			_, errWS := os.Stat(filepath.Join(venv, "Lib", "site-packages", "websockets"))
+			temWS := errWS == nil
+			if p == "" || (temWS && !comWS) || (temWS == comWS && st.ModTime().After(maisNovo)) {
+				maisNovo, comWS, p = st.ModTime(), temWS, c
 			}
 		}
 		if p != "" {
@@ -185,9 +202,11 @@ func (a *App) reiniciaPonte() {
 	ponteModeloMu.Lock()
 	ponteModelo = "" // o handshake novo traz o modelo novo
 	ponteModeloMu.Unlock()
+	ponteEscritaMu.Lock()
 	if ponteIn != nil {
 		_ = ponteIn.Close()
 	}
+	ponteEscritaMu.Unlock()
 	if ponteCmd != nil {
 		fim := make(chan struct{})
 		go func(c *exec.Cmd) { _ = c.Wait(); close(fim) }(ponteCmd)
@@ -199,7 +218,9 @@ func (a *App) reiniciaPonte() {
 		}
 		ponteCmd = nil
 	}
+	ponteEscritaMu.Lock()
 	ponteIn, ponteLinhas = nil, nil
+	ponteEscritaMu.Unlock()
 	ponteVidaMu.Unlock()
 	ponteMu.Unlock()
 	logMsg("ponte: reiniciando (a IA mudou)")
@@ -232,7 +253,9 @@ func marcaPonte(pronta bool, erro string) {
 func ligaPonte(in io.WriteCloser, out io.Reader) {
 	linhas := make(chan string, 256)
 	ponteMu.Lock()
+	ponteEscritaMu.Lock()
 	ponteIn, ponteLinhas = in, linhas
+	ponteEscritaMu.Unlock()
 	ponteMu.Unlock()
 	go func() {
 		defer close(linhas)
@@ -280,7 +303,8 @@ type respostaPonte struct {
 	OK        bool            `json:"ok"`
 	Pronto    bool            `json:"pronto"`
 	Resposta  string          `json:"resposta"`
-	Progresso string          `json:"progresso"` // "texto" ou "passo" — NÃO é a resposta
+	Progresso string          `json:"progresso"` // "texto", "passo", "aprovacao"… — NÃO é a resposta
+	Aprovacao json.RawMessage `json:"aprovacao"` // o pedido de aprovação (progresso "aprovacao")
 	Texto     string          `json:"texto"`
 	Erro      string          `json:"erro"`
 	Segundos  float64         `json:"segundos"`
@@ -329,7 +353,7 @@ func (a *App) pedidoPonte(pedido map[string]any, esperar bool) (respostaPonte, b
 	id := ponteSeq
 	pedido["id"] = id
 	bruto, _ := json.Marshal(pedido)
-	if _, err := ponteIn.Write(append(bruto, '\n')); err != nil {
+	if err := escrevePonte(bruto); err != nil {
 		logMsg("ponte: falha ao escrever (" + err.Error() + ") — reserva lenta")
 		return respostaPonte{Erro: err.Error()}, false
 	}
@@ -371,9 +395,16 @@ func (a *App) pedidoPonte(pedido map[string]any, esperar bool) (respostaPonte, b
 			// tentativa (a linha não é resposta).
 			if d.Progresso != "" {
 				if a != nil && a.ctx != nil {
-					runtime.EventsEmit(a.ctx, "chat-progresso", map[string]string{
-						"tipo": d.Progresso, "texto": d.Texto,
-					})
+					switch d.Progresso {
+					case "aprovacao": // o cartão do chat (RespondeAprovacao devolve a escolha)
+						runtime.EventsEmit(a.ctx, "chat-aprovacao", string(d.Aprovacao))
+					case "aprovacao-fim": // o Hermes retirou a pergunta: o cartão sai
+						runtime.EventsEmit(a.ctx, "chat-aprovacao-fim", d.Texto)
+					default:
+						runtime.EventsEmit(a.ctx, "chat-progresso", map[string]string{
+							"tipo": d.Progresso, "texto": d.Texto,
+						})
+					}
 				}
 				tentativa-- // progresso não gasta tentativa: só as 4 leituras "de verdade" contam
 				continue
@@ -421,6 +452,40 @@ func (a *App) pedidoPonte(pedido map[string]any, esperar bool) (respostaPonte, b
 	// ponte de pé, só confusa: mesma regra do tempo esgotado — nada de repetir a pergunta
 	logMsg("ponte: frames demais sem resposta — sem reserva")
 	return respostaPonte{OK: true, Resposta: msgPonteDemorou, Erro: msgPonteDemorou}, true
+}
+
+// escrevePonte — uma linha no stdin da ponte (sob ponteEscritaMu: ver a declaração).
+func escrevePonte(bruto []byte) error {
+	ponteEscritaMu.Lock()
+	defer ponteEscritaMu.Unlock()
+	if ponteIn == nil {
+		return fmt.Errorf("a ponte não está ligada")
+	}
+	_, err := ponteIn.Write(append(bruto, '\n'))
+	return err
+}
+
+// escolhasAprovacao — as que o Hermes aceita (o mesmo ESCOLHAS_APROVACAO do chat_bridge.py)
+var escolhasAprovacao = map[string]bool{"once": true, "session": true, "always": true, "deny": true}
+
+// RespondeAprovacao — a escolha da dona no cartão de aprovação do chat (30/10/2026).
+//
+// O Hermes só roda comando perigoso com o "sim" de alguém e pergunta à ponte (ver o topo do
+// chat_bridge.py). A pergunta está EM ANDAMENTO — segura ponteMu até o agente terminar, e ele
+// só termina depois desta resposta. Por isso aqui NÃO se pega ponteMu: a linha vai direto
+// para a ponte, que a encaminha ao Hermes sem passar pela fila de perguntas.
+func (a *App) RespondeAprovacao(pedido, escolha string) string {
+	pedido = strings.TrimSpace(pedido)
+	if pedido == "" || !escolhasAprovacao[escolha] {
+		return "Resposta de aprovação inválida."
+	}
+	bruto, _ := json.Marshal(map[string]string{"aprovacao": pedido, "escolha": escolha})
+	if err := escrevePonte(bruto); err != nil {
+		logMsg("ponte: não consegui entregar a aprovação (" + err.Error() + ")")
+		return "Não consegui entregar a resposta ao agente: " + err.Error()
+	}
+	logMsg("ponte: aprovação " + pedido + " → " + escolha)
+	return ""
 }
 
 const msgPonteDemorou = "A resposta está demorando demais. Parei de esperar para não gastar " +

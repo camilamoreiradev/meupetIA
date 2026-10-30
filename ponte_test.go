@@ -89,3 +89,78 @@ func TestPonteNaoTrocaRespostas(t *testing.T) {
 		t.Fatal("pergunta 2 não terminou")
 	}
 }
+
+// TestPonteAprovacaoNoMeioDaPergunta — o Hermes pede aprovação NO MEIO de uma pergunta, e a
+// pergunta só termina depois da resposta. Se RespondeAprovacao esperasse ponteMu (que a
+// pergunta segura), as duas ficariam se esperando para sempre.
+func TestPonteAprovacaoNoMeioDaPergunta(t *testing.T) {
+	pedidosR, pedidosW := io.Pipe()
+	saidaR, saidaW := io.Pipe()
+	defer pedidosW.Close()
+	defer saidaW.Close()
+	ligaPonte(pedidosW, saidaR)
+
+	pedidos := bufio.NewReader(pedidosR)
+	escreve := func(v map[string]any) {
+		b, _ := json.Marshal(v)
+		_, _ = saidaW.Write(append(b, '\n'))
+	}
+	le := func() map[string]any {
+		l, err := pedidos.ReadString('\n')
+		if err != nil {
+			t.Fatalf("a ponte não recebeu a linha: %v", err)
+		}
+		var p map[string]any
+		_ = json.Unmarshal([]byte(l), &p)
+		return p
+	}
+
+	escreve(map[string]any{"ok": true, "pronto": true})
+	for fim := time.Now().Add(2 * time.Second); ; {
+		if pronta, _ := estadoPonte(); pronta {
+			break
+		}
+		if time.Now().After(fim) {
+			t.Fatal("handshake não foi aceito")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	a := NewApp()
+	feito := make(chan string)
+	go func() { r, _ := a.perguntaPonte("liste os registros"); feito <- r }()
+	id := le()["id"]
+
+	escreve(map[string]any{"ok": true, "id": id, "progresso": "aprovacao",
+		"aprovacao": map[string]any{"pedido": "srq-abc", "comando": "gd_list.ps1", "opcoes": []string{"once", "deny"}}})
+
+	if msg := a.RespondeAprovacao("srq-abc", "talvez"); msg == "" {
+		t.Fatal("escolha fora da lista deveria ser recusada")
+	}
+	// io.Pipe não tem buffer (o cano de verdade tem): a ponte de mentira lê ao mesmo tempo
+	recebida := make(chan map[string]any, 1)
+	go func() { recebida <- le() }()
+	respondeu := make(chan string)
+	go func() { respondeu <- a.RespondeAprovacao("srq-abc", "once") }()
+	select {
+	case msg := <-respondeu:
+		if msg != "" {
+			t.Fatalf("a resposta da aprovação falhou: %s", msg)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("RespondeAprovacao travou esperando a pergunta em andamento")
+	}
+	if p := <-recebida; p["aprovacao"] != "srq-abc" || p["escolha"] != "once" {
+		t.Fatalf("a ponte recebeu %v, esperava a aprovação srq-abc/once", p)
+	}
+
+	escreve(map[string]any{"ok": true, "id": id, "resposta": "seis registros"})
+	select {
+	case r := <-feito:
+		if r != "seis registros" {
+			t.Fatalf("a pergunta recebeu %q", r)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("a pergunta não terminou depois da aprovação")
+	}
+}

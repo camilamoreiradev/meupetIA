@@ -906,11 +906,99 @@ function progressoAoVivo(p) {
 function encerraAoVivo() {
   if (_vivoTimer) { clearInterval(_vivoTimer); _vivoTimer = null; }
   _vivoRotulo = ""; _vivoTexto = ""; _vivoInicio = 0;
+  _aprovacao = null;   // a pergunta acabou: pedido de aprovação nenhum segue valendo
   for (const alvo of [msgs, document.getElementById("cg-msgs")]) {
     if (!alvo) continue;
-    const vivo = alvo.querySelector(".ao-vivo");
-    if (vivo) vivo.remove();
+    for (const el of alvo.querySelectorAll(".ao-vivo, .aprovacao")) el.remove();
   }
+}
+
+/* CARTÃO DE APROVAÇÃO (30/10/2026). O Hermes só roda comando perigoso (terminal, computer_use…)
+   com o "sim" de alguém e pergunta à ponte (topo do chat_bridge.py). Antes a ponte não sabia
+   responder e o Hermes recusava tudo com "update the Hermes app" — a dona pediu para mexer no
+   DNS da GoDaddy e nada rodava. Agora a pergunta vira este cartão, logo acima da bolha
+   "digitando", e o botão devolve a escolha (RespondeAprovacao, ponte.go).
+   ⚠️ Não abre o balão (regra do dono): com o chat fechado, avisa por toast. */
+let _aprovacao = null;   // {pedido, comando, descricao, ferramenta, opcoes}
+const ROTULO_APROVACAO = {
+  once: "Permitir uma vez", session: "Permitir nesta conversa", always: "Sempre permitir", deny: "Negar",
+};
+
+function _pintaAprovacao() {
+  for (const alvo of [msgs, document.getElementById("cg-msgs")]) {
+    if (!alvo) continue;
+    const velho = alvo.querySelector(".aprovacao");
+    if (velho) velho.remove();
+    if (!_aprovacao) continue;
+    const ap = _aprovacao;
+    const el = document.createElement("div");
+    el.className = "m ele aprovacao";
+    const tit = document.createElement("b");
+    tit.textContent = nomeDoPet() + " precisa da sua permissão";
+    el.appendChild(tit);
+    if (ap.descricao) {
+      const d = document.createElement("span");
+      d.className = "ap-desc";
+      d.textContent = ap.descricao;
+      el.appendChild(d);
+    }
+    if (ap.comando) {
+      const c = document.createElement("pre");
+      c.className = "ap-cmd";
+      c.textContent = ap.comando;   // texto puro: o comando nunca vira HTML
+      el.appendChild(c);
+    }
+    const bts = document.createElement("span");
+    bts.className = "ap-bts";
+    for (const op of ap.opcoes || []) {
+      const b = document.createElement("button");
+      b.className = "pn-bt" + (op === "once" ? "" : " sec") + (op === "deny" ? " negar" : "");
+      b.textContent = ROTULO_APROVACAO[op] || op;
+      b.onclick = (ev) => { ev.stopPropagation(); respondeAprovacao(ap.pedido, op); };
+      bts.appendChild(b);
+    }
+    el.appendChild(bts);
+    const vivo = alvo.querySelector(".ao-vivo");
+    alvo.insertBefore(el, vivo);   // vivo null = vai para o fim
+  }
+  rolarAoFim();
+}
+
+function pedeAprovacao(bruto) {
+  let ap;
+  try { ap = typeof bruto === "string" ? JSON.parse(bruto) : bruto; } catch (e) { return; }
+  if (!ap || !ap.pedido) return;
+  _aprovacao = ap;
+  _vivoRotulo = "Esperando sua permissão";
+  _pintaAprovacao();
+  if (_vivoInicio) _pintaVivo();
+  reiniciarAuto();
+  const chatFechado = balao.classList.contains("oculto") && (!cg || cg.classList.contains("oculto"));
+  if (chatFechado) {
+    const ver = () => abrirBalao();
+    toast("conversar", nomeDoPet() + " precisa da sua permissão", ap.descricao || ap.comando || "", 60000, false,
+      { acoes: [{ r: "Ver pedido", prim: true, fn: ver }], clique: ver });
+  }
+}
+
+function aprovacaoRetirada(pedido) {
+  if (!_aprovacao || _aprovacao.pedido !== pedido) return;
+  _aprovacao = null;
+  _vivoRotulo = "O pedido de permissão expirou";
+  _pintaAprovacao();
+  if (_vivoInicio) _pintaVivo();
+}
+
+async function respondeAprovacao(pedido, escolha) {
+  if (!_aprovacao || _aprovacao.pedido !== pedido) return;
+  _aprovacao = null;   // some na hora: dois cliques não mandam duas respostas
+  _pintaAprovacao();
+  _vivoRotulo = escolha === "deny" ? "Permissão negada" : "Permitido — continuando";
+  if (_vivoInicio) _pintaVivo();
+  let erro = "";
+  try { erro = G && G.RespondeAprovacao ? await G.RespondeAprovacao(pedido, escolha) : "fora do Wails"; }
+  catch (e) { erro = String(e); }
+  if (erro) toast("conversar", "Não consegui responder ao pedido", erro, 8000);
 }
 
 function pintaConversa() {
@@ -955,6 +1043,7 @@ function pintaConversa() {
     }
   }
   if (_vivoInicio) _pintaVivo(); // repintar a conversa não pode sumir com a bolha "digitando"
+  if (_aprovacao) _pintaAprovacao(); // ...nem com o cartão de aprovação
   rolarAoFim();   // antes era `alvo.scrollTop` por alvo: não pegava com o balão oculto
   ancoraBalao();
 }
@@ -1999,6 +2088,8 @@ function ligarEventos() {
   // ⚠️ NÃO abre o balão (regra do dono: nada abre o chat sozinho) — só pinta se já estiver
   // aberto. Ao chegar a resposta final, a linha ao vivo sai e entra a mensagem de verdade.
   R.EventsOn("chat-progresso", (p) => progressoAoVivo(p));
+  R.EventsOn("chat-aprovacao", (ap) => pedeAprovacao(ap));
+  R.EventsOn("chat-aprovacao-fim", (id) => aprovacaoRetirada(id));
   // volta do "esconder N min": quem conta o tempo é o Go — aqui só damos o recado
   // (balãozinho, que é a voz do bicho: não abre chat nem entra no histórico)
   R.EventsOn("volta-escondido", (min) => {
